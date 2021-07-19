@@ -41,7 +41,7 @@ OPTIONS:
         ```
     - using cargo install
         ```bash
-        cargo install request_smuggler
+        cargo install request_smuggler --version 0.1.0-alpha.1
         ```
 - Mac
     - from source code (rust should be installed)
@@ -52,7 +52,7 @@ OPTIONS:
         ```
     - using cargo install
         ```bash
-        cargo install request_smuggler
+        cargo install request_smuggler --version 0.1.0-alpha.1
         ```
 
 - Windows

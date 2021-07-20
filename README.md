@@ -1,5 +1,12 @@
 [![Twitter](https://img.shields.io/twitter/follow/sh1yo_.svg?logo=twitter)](https://twitter.com/sh1yo_)
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/B0B858X5E)
+
+![crates.io](https://img.shields.io/crates/v/request_smuggler.svg)
+![stars](https://img.shields.io/github/stars/Sh1Yo/request_smuggler)
+![crates_downloads](https://img.shields.io/crates/d/request_smuggler?logo=rust)
+![github_downloads](https://img.shields.io/github/downloads/sh1yo/request_smuggler/total?label=downloads&logo=github)
+
 <h1 align="center">Request smuggler</h1>
 <h3 align="center">Http request smuggling vulnerability scanner</h3>
 <p align="center">

@@ -1,6 +1,6 @@
-use crate::{structs::Config};
+use crate::{structs::{Config, AttackType}};
 use clap::{crate_version, App, AppSettings, Arg};
-use std::{collections::HashMap, io::{self, Write}};
+use std::{collections::HashMap, str::FromStr};
 use url::Url;
 
 pub fn get_config() -> Config {
@@ -15,18 +15,12 @@ pub fn get_config() -> Config {
             .takes_value(true)
             .required(true)
         )
-        /*.arg(
-            Arg::with_name("proxy")
-                .short("x")
-                .long("proxy")
-                .value_name("proxy")
-        )*/
         .arg(
             Arg::with_name("method")
                 .short("X")
                 .long("method")
                 .value_name("method")
-                .help("(default is \"POST\")")
+                .default_value("POST")
                 .takes_value(true)
         )
         .arg(
@@ -41,47 +35,52 @@ pub fn get_config() -> Config {
             Arg::with_name("verbose")
                 .short("v")
                 .long("verbose")
-                .help("0 - print detected cases and errors only, 1 - print first line of server responses (default is 0)")
+                .help("0 - print detected cases and errors only,
+1 - print first line of server responses
+2 - print requests")
+                .default_value("0")
                 .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("full")
-                .long("full")
-                .help("Tries to detect the vulnerability using differential responses as well.\nCan disrupt other users!!!")
         )
         .arg(
             Arg::with_name("amount-of-payloads")
                 .long("amount-of-payloads")
-                .help("low/medium/all (default is \"low\")")
+                .help("low/medium/all")
+                .default_value("low")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("attack-types")
+                .long("attack-types")
+                .short("t")
+                .help("[ClTeMethod, ClTePath, ClTeTime, TeClMethod, TeClPath, TeClTime] [default: \"ClTeTime\" \"TeClTime\"]")
+                .min_values(1)
+        )
+        .arg(
+            Arg::with_name("verify")
+                .long("verify")
+                .help("how many times verify the vulnerability")
+                .default_value("2")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("file")
+                .long("file")
+                .help("send request from a file\nyou need to explicitly pass \\r\\n at the end of the lines")
                 .takes_value(true)
         );
 
     let args = app.clone().get_matches();
 
-    let verbose: usize = match args.value_of("verbose") {
-        Some(val) => val.parse().expect("incorrect verbose"),
-        None => 0,
-    };
+    let verbose: usize = args.value_of("verbose").unwrap().parse().expect("incorrect verbose");
+    let verify: usize = args.value_of("verify").unwrap().parse().expect("incorrect verify");
 
     let mut headers: HashMap<String, String> = HashMap::new();
     if let Some(val) = args.values_of("headers") {
         for header in val {
             let mut k_v = header.split(':');
-            let key = match k_v.next() {
-                Some(val) => val,
-                None => {
-                    writeln!(io::stderr(), "Unable to parse headers").ok();
-                    std::process::exit(1);
-                }
-            };
+            let key = k_v.next().expect("Unable to parse headers");
             let value: String = [
-                match k_v.next() {
-                    Some(val) => val.trim().to_owned(),
-                    None => {
-                        writeln!(io::stderr(), "Unable to parse headers").ok();
-                        std::process::exit(1);
-                    }
-                },
+                k_v.next().expect("Unable to parse headers").to_string(),
                 k_v.map(|x| ":".to_owned() + x).collect(),
             ].concat();
 
@@ -89,13 +88,18 @@ pub fn get_config() -> Config {
         }
     };
 
-    let url = match Url::parse(args.value_of("url").unwrap_or("https://example.com")) {
-        Ok(val) => val,
-        Err(err) => {
-            writeln!(io::stderr(), "Unable to parse target url: {}", err).ok();
-            std::process::exit(1);
-        },
+    let mut attack_types: Vec<AttackType> = Vec::new();
+    if let Some(val) = args.values_of("attack-types") {
+        for attack_type in val {
+            attack_types.push(AttackType::from_str(attack_type).expect("Unable to parse attack-type"));
+        }
     };
+
+    if attack_types.is_empty() {
+        attack_types = vec![AttackType::ClTeTime, AttackType::TeClTime]
+    }
+
+    let url = Url::parse(args.value_of("url").expect("No URL is provided")).expect("Unable to parse URL");
 
     let host = url.host_str().unwrap();
     let path = url[url::Position::BeforePath..].to_string();
@@ -117,7 +121,7 @@ pub fn get_config() -> Config {
 
     let url = args
         .value_of("url")
-        .unwrap_or("https://something.something")
+        .unwrap()
         .to_string();
 
     let https = url.contains("https://");
@@ -128,17 +132,20 @@ pub fn get_config() -> Config {
         }
     };
 
+    println!("Loaded attack types: {:?}", attack_types);
+
     Config{
         url,
         host: host.to_string(),
         path,
-        method: args.value_of("method").unwrap_or("POST").to_string(),
+        method: args.value_of("method").unwrap().to_string(),
         https,
         port,
-        proxy: args.value_of("proxy").unwrap_or("").to_string(),
         headers,
-        full: args.is_present("full"),
-        amount_of_payloads: args.value_of("amount-of-payloads").unwrap_or("low").to_string(),
-        verbose
+        attack_types,
+        verify,
+        amount_of_payloads: args.value_of("amount-of-payloads").unwrap().to_string(),
+        verbose,
+        file: args.value_of("file").unwrap_or("").to_string(),
     }
 }

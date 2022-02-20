@@ -14,13 +14,17 @@ use flate2::read::{GzDecoder};
 
 pub fn make_connection(config: &Config) -> Result<Connection, Box<dyn Error>> {
     if config.https {
-        connect_to_https(&config.proxy, &config.host, config.port)
+        connect_to_https(&config.host, config.port)
     } else {
-        connect_to_http(&config.proxy, &config.host, config.port)
+        connect_to_http(&config.host, config.port)
     }
 }
 
 pub fn raw_request(config: &Config, mut stream: Connection, request: &str) -> Result<(Option<Connection>, Response), Box<dyn Error>> {
+
+    if config.verbose > 1 {
+        writeln!(io::stdout(), "{}", request).ok();
+    }
 
     //send the actual request and reconnect in case of Broken Pipe error
     stream = match stream.write_all(request.as_bytes()) {
@@ -139,7 +143,10 @@ pub fn raw_request(config: &Config, mut stream: Connection, request: &str) -> Re
     };
 
     if config.verbose > 0 {
-        writeln!(io::stdout(), "{:?}", firstline.trim()).ok();
+        writeln!(io::stdout(), "{:?}, {}ms", firstline.trim(), duration.as_millis()).ok();
+        if config.verbose > 1 {
+            writeln!(io::stdout(), "------------").ok();
+        }
     }
 
     let mut firstline = firstline.split(' ');
@@ -335,7 +342,7 @@ fn decode_body(encoding: &str, body: Vec<u8>) -> String {
 }
 
 //for now for testing purposes only
-fn connect_via_proxy(proxy: &str, host: &str, port: usize) -> Result<std::net::TcpStream, Box<dyn Error>> {
+fn _connect_via_proxy(proxy: &str, host: &str, port: usize) -> Result<std::net::TcpStream, Box<dyn Error>> {
     //make CONNECT request to the proxy
     let connect = format!(
         "CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\nProxy-Connection: Keep-Alive\r\n\r\n",
@@ -406,21 +413,15 @@ fn connect_to_server(host: &str, port: usize) -> Result<std::net::TcpStream, Box
 }
 
 fn connect_to_http(
-    proxy: &str,
     host: &str,
     port: usize
 ) -> Result<Connection, Box<dyn Error>> {
-    let stream = if proxy.is_empty() {
-        connect_to_server(host, port)
-    } else {
-        connect_via_proxy(proxy, host, port)
-    }?;
+    let stream = connect_to_server(host, port)?;
 
     Ok(Connection::Http{stream})
 }
 
 fn connect_to_https(
-    proxy: &str,
     host: &str,
     port: usize
 ) -> Result<Connection, Box<dyn Error>> {
@@ -430,11 +431,7 @@ fn connect_to_https(
         .danger_accept_invalid_certs(true)
         .build()?;
 
-    let stream = if proxy.is_empty() {
-        connect_to_server(host, port)?
-    } else {
-        connect_via_proxy(proxy, host, port)?
-    };
+    let stream = connect_to_server(host, port)?;
 
     let stream = connector.connect(host, stream)?;
 

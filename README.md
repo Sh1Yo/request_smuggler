@@ -20,21 +20,28 @@ The tool can help to find servers that may be vulnerable to request smuggling vu
 
 ```
 USAGE:
-    request_smuggler [FLAGS] [OPTIONS] --url <url>
+    request_smuggler [OPTIONS] --url <url>
 
 FLAGS:
-        --full       Tries to detect the vulnerability using differential responses as well.
-                     Can disrupt other users!!!
     -h, --help       Prints help information
     -V, --version    Prints version information
 
 OPTIONS:
-        --amount-of-payloads <amount-of-payloads>    low/medium/all (default is "low")
+        --amount-of-payloads <amount-of-payloads>    low/medium/all [default: low]
+    -t, --attack-types <attack-types>
+            [ClTeMethod, ClTePath, ClTeTime, TeClMethod, TeClPath, TeClTime] [default: "ClTeTime" "TeClTime"]
+
+        --file <file>
+            send request from a file
+            you need to explicitly pass \r\n at the end of the lines
     -H, --header <headers>                           Example: -H 'one:one' 'two:two'
-    -X, --method <method>                            (default is "POST")
+    -X, --method <method>                             [default: POST]
     -u, --url <url>
     -v, --verbose <verbose>
-            0 - print detected cases and errors only, 1 - print first line of server responses (default is 0)
+            0 - print detected cases and errors only,
+            1 - print first line of server responses
+            2 - print requests [default: 0]
+        --verify <verify>                            how many times verify the vulnerability [default: 2]
 ```
 
 ## Installation
@@ -48,7 +55,7 @@ OPTIONS:
         ```
     - using cargo install
         ```bash
-        cargo install request_smuggler --version 0.1.0-alpha.1
+        cargo install request_smuggler --version 0.1.0-alpha.2
         ```
 - Mac
     - from source code (rust should be installed)
@@ -59,7 +66,7 @@ OPTIONS:
         ```
     - using cargo install
         ```bash
-        cargo install request_smuggler --version 0.1.0-alpha.1
+        cargo install request_smuggler --version 0.1.0-alpha.2
         ```
 
 - Windows

@@ -1,5 +1,5 @@
 use crate::{
-    structs::{Config, Connection, AttackType},
+    structs::{Config, AttackType, AttackKind},
     utils::{generate_requests, payloads, found},
     raw_requests::{make_connection, raw_request},
 };
@@ -7,59 +7,67 @@ use std::{thread, time, io, io::Write};
 
 pub fn timing(
     config: &Config,
-    mut stream: Connection
+    attack_types: &Vec<AttackType>
 ) {
     let request_template = generate_requests(AttackType::ClTe, config);
 
-    for attack_type in [AttackType::ClTeTime, AttackType::TeClTime].iter() {
+    for attack_type in attack_types.iter() {
+        writeln!(io::stdout(), "Trying {}..", attack_type.to_string()).ok();
         let bad_request_template = generate_requests(*attack_type, config);
-
         for payload in payloads(config) {
             //generate a request that will cause time delay in case of presence of the vulnerability
             let bad_request = bad_request_template.replace("Transfer-Encoding: chunked", &payload);
-            //send this request and get the response
-            let (new_stream, bad_response) = match raw_request(config, stream, &bad_request) {
-                Ok(val) => val,
-                Err(err) => {
-                    writeln!(io::stderr(), "{}", err).ok();
-                    stream = make_connection(&config).unwrap();
-                    continue
-                }
-            };
-            //reconnect to the server in case of closed connection
-            stream = if bad_response.is_closed() { make_connection(&config).unwrap() } else { new_stream.unwrap_or(make_connection(&config).unwrap()) };
+            for i in 0..config.verify+1 {
 
-            //observe the time delay
-            if bad_response.time > 5000 {
-                stream.shutdown().ok();
-                thread::sleep(time::Duration::from_secs(5));
-                //generate a request that will look like the first request, but should not cause a time delay
-                let request = request_template.replace("Transfer-Encoding: chunked", &payload);
-                let (new_stream, response) = match raw_request(config, make_connection(&config).unwrap(), &request) {
+                let (stream, bad_response) = match raw_request(config, make_connection(&config).unwrap(), &bad_request) {
                     Ok(val) => val,
                     Err(err) => {
                         writeln!(io::stderr(), "{}", err).ok();
-                        continue
+                        break
                     }
                 };
-                //close the connection
-                if let Some(mut stream) = new_stream { stream.shutdown().ok(); }
+                if let Some(mut stream) = stream { stream.shutdown().ok(); }
 
-                //the delay of the bad response is much longer.
-                if response.time * 5 < bad_response.time {
-                    stream.shutdown().ok();
-                    found(*attack_type, &bad_request, &request, &bad_response, &response);
-                    std::process::exit(0);
+                //move to the next payload in case no time delay is caused
+                if bad_response.time < 5000 {
+                    break;
+                }
+
+                if i == 0 {
+                    writeln!(io::stdout(), "Time delay observed ({}ms)", bad_response.time).ok();
+                } else if i == config.verify {
+                    writeln!(io::stdout(), "Time delay confirmed ({}ms)", bad_response.time).ok();
+                }
+                thread::sleep(time::Duration::from_secs(5));
+
+                //generate a request with correct sizes that will not cause delay if the vulnerability is present
+                let request = request_template.replace("Transfer-Encoding: chunked", &payload);
+                let (stream, correct_response) = match raw_request(config, make_connection(&config).unwrap(), &request) {
+                    Ok(val) => val,
+                    Err(err) => {
+                        writeln!(io::stderr(), "{}", err).ok();
+                        break
+                    }
+                };
+                if let Some(mut stream) = stream { stream.shutdown().ok(); }
+
+                if correct_response.time * 2 > bad_response.time { //filter some false positives
+                    writeln!(io::stdout(), "Time delay rejected. The correct response caused delay ({}ms)", correct_response.time).ok();
+                    return
+                }
+
+                if i == config.verify {
+                    found(*attack_type, &bad_request, &request, &bad_response, &correct_response);
+                    return
                 }
             }
         }
     }
-    stream.shutdown().ok();
 }
 
 pub fn differential_responses(
     config: &Config,
-    stream: Connection,
+    attack_types: &Vec<AttackType>
 ) {
     //create different requests
     let mut usual_request = config.custom_print("GET", &config.path);
@@ -72,55 +80,200 @@ pub fn differential_responses(
     notfound_request.push_str("\r\n");
 
     //send these requests to check whether the clear difference (comparing to usual response) is present
-    let (stream, usual_response) = raw_request(config, stream, &usual_request).unwrap();
-    let stream = if usual_response.is_closed() { make_connection(&config).unwrap() } else { stream.unwrap_or(make_connection(&config).unwrap()) };
+    let usual_response =
+        match raw_request(config, make_connection(&config).unwrap(), &usual_request) { //close connection in case everything is ok
+            Ok(val) => if let Some(mut stream) = val.0 {
+                stream.shutdown().ok();
+                Some(val.1)
+            } else {
+                Some(val.1)
+            },
+            Err(_) => {
+                writeln!(io::stderr(), "Unable to get response for {}", config.host).ok();
+                return
+            },
+    };
 
-    let (stream, gmethod_response) = raw_request(config, stream, &gmethod_request).unwrap();
-    let stream = if gmethod_response.is_closed() { make_connection(&config).unwrap() } else { stream.unwrap_or(make_connection(&config).unwrap()) };
+    let gmethod_response =
+        match raw_request(config, make_connection(&config).unwrap(), &gmethod_request) { //close connection in case everything is ok
+            Ok(val) => if let Some(mut stream) = val.0 {
+                stream.shutdown().ok();
+                Some(val.1)
+            } else {
+                Some(val.1)
+            },
+            Err(_) => {
+                writeln!(io::stderr(), "Unable to get response for {}(incorrect method).\nSome checks may be skipped", config.host).ok();
+                None
+            },
+    };
 
-    let (stream, notfound_response) = raw_request(config, stream, &notfound_request).unwrap();
-    let mut stream = if notfound_response.is_closed() { make_connection(&config).unwrap() } else { stream.unwrap_or(make_connection(&config).unwrap()) };
+    let notfound_response =
+        match raw_request(config, make_connection(&config).unwrap(), &notfound_request) {
+            Ok(val) => if let Some(mut stream) = val.0 {
+                stream.shutdown().ok();
+                Some(val.1)
+            } else {
+                Some(val.1)
+            },
+            Err(_) => {
+                writeln!(io::stderr(), "Unable to get response for {}(not found path).\nSome checks may be skipped", config.host).ok();
+                None
+            },
+    };
 
+    //TODO maybe check path and method together
+    if (usual_response.is_some() && gmethod_response.is_some())
+    && (usual_response.as_ref().unwrap().code != gmethod_response.as_ref().unwrap().code || gmethod_response.as_ref().unwrap().body.contains("GPOST")) {
+        for attack_type in attack_types.clone() {
 
-    if usual_response.code != gmethod_response.code || gmethod_response.body.contains("GPOST") {
-        for attack_type in [AttackType::ClTeMethod, AttackType::TeClMethod].iter() {
-            let attacker_request_template = generate_requests(*attack_type, config);
+            if attack_type.kind() != AttackKind::Method {
+                continue
+            }
+            writeln!(io::stdout(), "Trying {}..", attack_type.to_string()).ok();
+
+            let attacker_request_template = generate_requests(attack_type, config);
 
             for payload in payloads(config) {
                 let attacker_request = attacker_request_template.replace("Transfer-Encoding: chunked", payload);
 
-                //make a request that may cause response desync
-                let (new_stream, attacker_response) = raw_request(config, stream, &attacker_request).unwrap();
-                stream = if attacker_response.is_closed() { make_connection(&config).unwrap() } else { new_stream.unwrap_or(make_connection(&config).unwrap()) };
+                for _ in 0..config.verify {
+                    //make a request that may cause response desync
+                    let (stream, _attacker_response) =
+                        match raw_request(config, make_connection(&config).unwrap(), &attacker_request) {
+                            Ok(val) => val,
+                            Err(err) => {
+                                writeln!(io::stderr(), "{}", err).ok();
+                                continue
+                            }
+                    };
+                    if let Some(mut stream) = stream { stream.shutdown().ok(); }
 
-                //try to catch that desync
-                for _ in 0..3 {
-                    let (_, victim_response) = raw_request(config, make_connection(&config).unwrap(), &usual_request).unwrap();
-                    if victim_response.body.contains("GGET") || victim_response.code == gmethod_response.code {
-                        found(*attack_type, &attacker_request, &usual_request, &victim_response, &usual_response);
-                        std::process::exit(0);
+                    let mut threads = vec![];
+                    //try to catch that desync
+                    for _ in 0..5 {
+                        //TODO optimize memory allocations
+                        let config = config.clone();
+                        let usual_request = usual_request.clone();
+                        let usual_response = usual_response.clone();
+                        let gmethod_response = gmethod_response.clone();
+                        let attacker_request = attacker_request.clone();
+
+                        threads.push(thread::spawn(move || {
+                            let (stream, victim_response) =
+                                match raw_request(&config, make_connection(&config).unwrap(), &usual_request) {
+                                    Ok(val) => val,
+                                    Err(err) => {
+                                        writeln!(io::stderr(), "{}", err).ok();
+                                        return false
+                                    }
+                            };
+                            if let Some(mut stream) = stream { stream.shutdown().ok(); }
+
+                            if victim_response.body.contains("GGET") || victim_response.code == gmethod_response.as_ref().unwrap().code {
+                                found(
+                                    attack_type,
+                                    &attacker_request,
+                                    &usual_request,
+                                    &victim_response,
+                                    &usual_response.as_ref().unwrap()
+                                );
+                                return true;
+                            }
+                            false
+                        }));
+                    }
+                    for thread in threads {
+                        match thread.join() {
+                            Ok(val) => if val { return },
+                            Err(_) => (),
+                        };
                     }
                 }
             }
         }
-    } else if usual_response.code != notfound_response.code || notfound_response.body.contains("so404mething") {
-        for attack_type in [AttackType::ClTeNotfound, AttackType::TeClNotfound].iter() {
-            let attacker_request_template = generate_requests(*attack_type, config);
+
+    }
+
+    if notfound_response.is_some()
+    && (usual_response.as_ref().unwrap().code != notfound_response.as_ref().unwrap().code || notfound_response.as_ref().unwrap().body.contains("so404mething")) {
+
+        let usual_response = usual_response.unwrap();
+        let notfound_response = notfound_response.unwrap();
+
+
+        for attack_type in attack_types.clone() {
+
+            if attack_type.kind() != AttackKind::Path {
+                continue
+            }
+            writeln!(io::stdout(), "Trying {}..", attack_type.to_string()).ok();
+
+            let attacker_request_template = generate_requests(attack_type, config);
 
             for payload in payloads(config) {
                 let attacker_request = attacker_request_template.replace("Transfer-Encoding: chunked", payload);
 
-                let (new_stream, attacker_response) = raw_request(config, stream, &attacker_request).unwrap();
-                stream = if attacker_response.is_closed() { make_connection(&config).unwrap() } else { new_stream.unwrap_or(make_connection(&config).unwrap()) };
+                let (stream, _attacker_response) =
+                    match raw_request(config, make_connection(&config).unwrap(), &attacker_request) {
+                            Ok(val) => val,
+                            Err(err) => {
+                                writeln!(io::stderr(), "{}", err).ok();
+                                continue
+                            }
+                    };
+                if let Some(mut stream) = stream { stream.shutdown().ok(); }
+                let mut threads = vec![];
 
-                for _ in 0..3 {
-                    let (_, victim_response) = raw_request(config, make_connection(&config).unwrap(), &usual_request).unwrap();
-                    if victim_response.body.contains("so404mething") || victim_response.code == notfound_response.code {
-                        found(*attack_type, &attacker_request, &usual_request, &victim_response, &usual_response);
-                        std::process::exit(0);
-                    }
+                for _ in 0..5 {
+                    //TODO optimize memory allocations
+                    let config = config.clone();
+                    let usual_request = usual_request.clone();
+                    let usual_response = usual_response.clone();
+                    let notfound_response = notfound_response.clone();
+                    let attacker_request = attacker_request.clone();
+
+                    threads.push(thread::spawn(move || {//maybe replace with futures
+                        let (stream, victim_response) =
+                            match raw_request(&config, make_connection(&config).unwrap(), &usual_request) {
+                                Ok(val) => val,
+                                Err(err) => {
+                                    writeln!(io::stderr(), "{}", err).ok();
+                                    return false
+                                }
+                        };
+                        if let Some(mut stream) = stream { stream.shutdown().ok(); }
+
+                        if victim_response.body.contains("so404mething") || victim_response.code == notfound_response.code {
+                            found(
+                                attack_type,
+                                &attacker_request,
+                                &usual_request,
+                                &victim_response,
+                                &usual_response
+                            );
+                            return true
+                        }
+                        false
+                    }));
+                }
+
+                for thread in threads {
+                    match thread.join() {
+                        Ok(val) => if val { return },
+                        Err(_) => (),
+                    };
                 }
             }
         }
     }
+}
+
+
+pub fn send_request(config: &Config, request: &str) {
+    let request = request.replace("\r", "").replace("\n", "").replace("\\r", "\r").replace("\\n", "\n").replace("\\t", "\t");
+    println!("{}", &request);
+    let (_, response) = raw_request(config, make_connection(&config).unwrap(), &request).unwrap();
+    println!("Code: {}", response.code);
+    println!("Time: {}", response.time);
 }

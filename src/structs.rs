@@ -1,10 +1,12 @@
 use std::{
     io::{Write, Read},
     collections::HashMap,
+    str::FromStr,
+    fmt::{self, Debug}
 };
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Response {
     pub time: u128,
     pub code: u16,
@@ -95,7 +97,7 @@ impl Connection {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Config {
     pub url: String,
     pub host: String,
@@ -103,11 +105,12 @@ pub struct Config {
     pub method: String,
     pub https: bool,
     pub port: usize,
-    pub proxy: String,
     pub headers: HashMap<String, String>,
-    pub full: bool,
+    pub attack_types: Vec<AttackType>,
+    pub verify: usize,
     pub verbose: usize,
-    pub amount_of_payloads: String
+    pub amount_of_payloads: String,
+    pub file: String
 }
 
 impl Config {
@@ -133,13 +136,62 @@ impl Config {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(PartialEq)]
+pub enum AttackKind {
+    Time,
+    Method,
+    Path,
+    Undefined
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AttackType {
     ClTeMethod,
-    ClTeNotfound,
+    ClTePath,
     ClTeTime,
     ClTe,
     TeClMethod,
-    TeClNotfound,
+    TeClPath,
     TeClTime,
+}
+
+impl FromStr for AttackType {
+
+    type Err = ();
+
+    fn from_str(input: &str) -> Result<AttackType, Self::Err> {
+
+        match input.to_lowercase().as_str() {
+            "cltemethod"  => Ok(AttackType::ClTeMethod),
+            "cltepath"  => Ok(AttackType::ClTePath),
+            "cltetime"  => Ok(AttackType::ClTeTime),
+            "clte" => Ok(AttackType::ClTe),
+            "teclmethod"  => Ok(AttackType::TeClMethod),
+            "teclpath"  => Ok(AttackType::TeClPath),
+            "tecltime"  => Ok(AttackType::TeClTime),
+            _      => Err(()),
+        }
+    }
+}
+
+impl fmt::Display for AttackType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+        // or, alternatively:
+        // fmt::Debug::fmt(self, f)
+    }
+}
+
+impl AttackType {
+    pub fn kind(&self) -> AttackKind {
+        match self {
+            AttackType::ClTeMethod => AttackKind::Method,
+            AttackType::TeClMethod => AttackKind::Method,
+            AttackType::ClTePath => AttackKind::Path,
+            AttackType::TeClPath => AttackKind::Path,
+            AttackType::ClTeTime => AttackKind::Time,
+            AttackType::TeClTime => AttackKind::Time,
+            _ => AttackKind::Undefined
+        }
+    }
 }

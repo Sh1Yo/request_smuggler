@@ -16,6 +16,9 @@
 Based on the amazing [research](https://portswigger.net/research/http-desync-attacks-request-smuggling-reborn) by [James Kettle](https://twitter.com/albinowax).
 The tool can help to find servers that may be vulnerable to request smuggling vulnerability.
 
+## Archived
+The tool needs a lot of improvements, and I don't have enough time to support it as I have another large project - [x8](https://github.com/Sh1Yo/x8). I will probably return to this project in the future.
+
 ## Usage
 
 ```
